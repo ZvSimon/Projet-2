@@ -1,6 +1,3 @@
-# Projet-2
-MLB games using Scala 3, ZIO, and HTTP in this project.
-
 # Building a ZIO Application Backend
 
 ## Topic
@@ -72,24 +69,36 @@ Compile, then run project with auto reload thanks to sbt-revolver:
 $ sbt run
 ```
 
-Method.POST :
+#### Method.POST :
 
 ```bash
-$ curl  http://localhost:8080/[...]
+$ curl  http://localhost:8080/gameHistory -d {'"team": "SDP", "startYear": "2019", "endYear": "2021"'}
 ```
 
-Method.GET for static :
+#### Method.GET for static :
+
+Test a query with: ( Response text "Hello World!" )
 
 ```bash
 $ curl http://localhost:8080/text 
 ```
 
+Test a query with: ( Response json {"greetings": "Hello World!"}  )
+
 ```bash
 $ curl http://localhost:8080/json
 ```
 
-Method.GET for endpoints :
+#### Method.GET for endpoints :
+
+Prediction of the last game to be played . ATL(HomeTeam) / NYM (AwayTeam) :
 
 ```bash
-$ curl http://localhost:8080/[...]
+$ curl http://localhost:8080/predict/game/ATL/NYM
+```
+
+Last played game of ATL(HomeTeam) and NYM (AwayTeam) :
+
+```bash
+$ curl http://localhost:8080/history/game/ATL/NYM
 ```
