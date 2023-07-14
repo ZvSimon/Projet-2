@@ -4,9 +4,13 @@ import zio.*
 import zio.jdbc.*
 import zio.http.*
 import zio.json.*
+import zio.stream.ZStream 
 
 import com.github.tototoshi.csv.*
 import java.io.File
+
+import mlb.query.*
+import mlb.model.*
 
 object MlbGames extends ZIOAppDefault {
 
@@ -27,23 +31,23 @@ object MlbGames extends ZIOAppDefault {
       props = properties
     )
 
-  val create: ZIO[ZConnectionPool, Throwable, Unit] = transaction {
-    execute(
-      sql"CREATE TABLE IF NOT EXISTS games(date DATE NOT NULL, season_year INT NOT NULL, playoff_round INT)"
-    )
+  // The createTables value is a ZIO effect that creates tables called "Game" , "EloRating","MlbPrediction","Pitcher" if it doesn't exist in the database.
+  val createTables: ZIO[ZConnectionPool, Throwable, Unit] = transaction {
+    execute(stringToSql(EloRating.createTableQuery))
+      *> execute(stringToSql(Game.createTableQuery))
+      *> execute(stringToSql(MlbPrediction.createTableQuery))
+      *> execute(stringToSql(Pitcher.createTableQuery))
   }
 
-  val insertRows: ZIO[ZConnectionPool, Throwable, UpdateResult] = transaction {
-    insert(
-      sql"INSERT INTO games(date, season_year, playoff_round)"
-        .values[(String, Int, Option[Int])](("2023-04-01", 2023, None), ("2023-04-01", 2023, None))
-    )
+  // insertRows execute a database transaction and perform an insert operation using the sqlFragment.
+  def insertRows(sqlFragment: SqlFragment) = transaction {
+    insert(sqlFragment)
   }
 
   val select: ZIO[ZConnectionPool, Throwable, Option[Int]] =
     transaction {
       selectOne(
-        sql"SELECT COUNT(*) FROM games".as[Int]
+        sql"SELECT COUNT(*) FROM Game".as[Int]
       )
     }
 
@@ -75,10 +79,27 @@ object MlbGames extends ZIOAppDefault {
   }.withDefaultErrorResponse
 
   val app: ZIO[ZConnectionPool & Server, Throwable, Unit] = for {
-    conn <- create *> insertRows
+    _ <- Console.printLine("Starting app...")
+    conn <- createTables
+    _ <- Console.printLine("Tables are created...")
+    source <- ZIO.succeed(CSVReader.open(new File(readFileCSV)))
+    _ <- Console.printLine(s"Starting to ingest data from '$readFileCSV' file to tables from csv file.")
+    _ <- ZStream
+      .fromIterator[Map[String, String]](source.allWithOrderedHeaders()._2.iterator)
+      .zipWithIndex.map { l => l._1.+("gameId" -> l._2.toString) }
+      .grouped(1000)
+      .map(_.toList)
+      .foreach { list =>
+        insertRows(EloRating.insertQuery.values[EloRating](list.map(EloRating.fromMap))) *>
+          insertRows(Game.insertQuery.values[Game](list.map(Game.fromMap))) *>
+          insertRows(MlbPrediction.insertQuery.values[MlbPrediction](list.map(MlbPrediction.fromMap))) *>
+          insertRows(Pitcher.insertQuery.values[Pitcher](list.map(Pitcher.fromMap)))
+      }
+    _ <- Console.printLine("Finished ingesting data...")
+    _ <- ZIO.succeed(source.close())
     _ <- Server.serve[ZConnectionPool](static ++ endpoints)
   } yield ()
-
+ 
   override def run: ZIO[Any, Throwable, Unit] =
     app.provide(createZIOPoolConfig >>> connectionPool, Server.default)
 }
