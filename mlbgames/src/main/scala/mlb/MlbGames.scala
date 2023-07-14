@@ -111,6 +111,41 @@ object MlbGames extends ZIOAppDefault {
             }
         }
       } yield res
+    // case Method.GET -> Root / "predict" / "game" / team1 / team2
+    // The endpoints value is an HTTP route that handles requests to "/predict/game/team1/team2" and returns the last game to be played.
+    case Method.GET -> Root / "predict" / "game" / team1 / team2 =>
+      for {
+        _ <- Console.printLine("Searching for predictions in MLB dataset")
+        latestGame <- selectAllAsList(Game.selectAll.where(sql"team1".in(team1).and(sql"team2".in(team2))).as[Game]).map(_.maxBy(_.date)) //<<<----
+        eloRating <- selectAllAsList(EloRating.selectAll.where(sql"gameId".in(latestGame.gameID)).as[EloRating]).map(_.head)
+        pitcher <- selectAllAsList(Pitcher.selectAll.where(sql"gameID".in(latestGame.gameID)).as[Pitcher]).map(_.head)
+        mlbPrediction <- selectAllAsList(MlbPrediction.selectAll.where(sql"gameID".in(latestGame.gameID)).as[MlbPrediction]).map(_.head)
+        game = Match(
+          game = latestGame,
+          eloRating = eloRating,
+          pitcher = pitcher,
+          mlbPrediction = mlbPrediction
+        )
+        _ <- Console.printLine(s"Found latest match Predict for [homeTeam: $team1 / awayTeam: $team2]: $game")
+      } yield Response.json(game.toJson)
+
+    // GET History of played game  :
+    case Method.GET -> Root / "history" / "game" / team1 / team2 =>
+      for {
+        _ <- Console.printLine("Searching for history in MLB dataset")
+        latestGame <- selectAllAsList(Game.selectAll.where(sql"team1".in(team1).and(sql"team2".in(team2)).and(sql"score1".notIn("") and sql"score2".notIn(""))).as[Game]).map(_.maxBy(_.date))
+        eloRating <- selectAllAsList(EloRating.selectAll.where(sql"gameId".in(latestGame.gameID)).as[EloRating]).map(_.head)
+        pitcher <- selectAllAsList(Pitcher.selectAll.where(sql"gameID".in(latestGame.gameID)).as[Pitcher]).map(_.head)
+        mlbPrediction <- selectAllAsList(MlbPrediction.selectAll.where(sql"gameID".in(latestGame.gameID)).as[MlbPrediction]).map(_.head)
+        game = Match(
+          game = latestGame,
+          eloRating = eloRating,
+          pitcher = pitcher,
+          mlbPrediction = mlbPrediction
+        )
+        _ <- Console.printLine(s"Found latest played game History for [homeTeam: $team1 / awayTeam: $team2] : $game")
+      } yield Response.json(game.toJson)
+    // count 
     case Method.GET -> Root / "count" =>
       for {
         count: Option[Int] <- select
