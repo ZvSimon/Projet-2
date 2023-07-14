@@ -11,6 +11,7 @@ import java.io.File
 
 import mlb.query.*
 import mlb.model.*
+import mlb.result.*
 
 object MlbGames extends ZIOAppDefault {
 
@@ -68,6 +69,48 @@ object MlbGames extends ZIOAppDefault {
   val readFileCSV = "mlb_elo.csv"
 
   val endpoints: App[ZConnectionPool] = Http.collectZIO[Request] {
+    case request@Method.POST -> Root / "gameHistory" =>
+      for {
+        header <- ZIO.succeed(getCSVHeader(readFileCSV))
+        optHistory <- request.body.asString.map(_.fromJson[History].toOption)
+        res <- optHistory match {
+          case None => ZIO.succeed(Response.text("Can't parse request body. Example Post body: {'team': 'SDP', 'startYear': 2019, 'endYear': 2021}"))
+          case Some(history) =>
+            val allMatches = for {
+              _ <- Console.printLine(history)
+              games <- selectAllAsList(stringToSql("SELECT * FROM Game").as[Game]).map(
+                _.filter(g => (g.team1 == history.team || g.team2 == history.team) && g.season.toInt >= history.startYear && g.season.toInt <= history.endYear)
+              ).map(_.map(l => (l.gameID, l)).toMap)
+              allIDs = games.keys.map("'" + _ + "'").mkString(",")
+              _ <- Console.printLine(s"Num of games ${games.size}")
+              eloRatings <- selectAllAsList(stringToSql(s"""SELECT * FROM EloRating WHERE gameId in ($allIDs)""").as[EloRating]).map(_.map(l => (l.gameId, l)).toMap)
+              _ <- Console.printLine(s"Num of EloRating ${eloRatings.size}")
+              pitchers <- selectAllAsList(stringToSql(s"""SELECT * FROM Pitcher WHERE gameId in ($allIDs)""").as[Pitcher]).map(_.map(l => (l.gameId, l)).toMap)
+              _ <- Console.printLine(s"Num of Pitcher ${pitchers.size}")
+              mlbPredictions <- selectAllAsList(stringToSql(s"""SELECT * FROM MlbPrediction WHERE gameId in ($allIDs)""").as[MlbPrediction]).map(_.map(l => (l.gameId, l)).toMap)
+              _ <- Console.printLine(s"Num of MlbPrediction ${mlbPredictions.size}")
+              _ <- Console.printLine("Got all tables records")
+            } yield eloRatings
+              .keys
+              .map(key => Match(
+                game = games(key),
+                eloRating = eloRatings(key),
+                pitcher = pitchers(key),
+                mlbPrediction = mlbPredictions(key)
+              ))
+              .toList
+
+            allMatches.map { records =>
+              Response.json {
+                TeamHistory(
+                  team = history.team,
+                  allMatches = records,
+                  interval = YearRange(history.startYear, history.endYear)
+                ).toJson
+              }
+            }
+        }
+      } yield res
     case Method.GET -> Root / "count" =>
       for {
         count: Option[Int] <- select
