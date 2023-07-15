@@ -102,3 +102,4 @@ Last played game of ATL(HomeTeam) and NYM (AwayTeam) :
 ```bash
 $ curl http://localhost:8080/history/game/ATL/NYM
 ```
+![ATL(Team1)-NYM(Team2)](https://github.com/ZvSimon/Projet-2/assets/73712759/68e524c3-54c0-4125-b2aa-fd3063ba76c6)
